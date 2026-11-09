@@ -38,6 +38,15 @@
   .samples button { font:inherit; font-size:13px; text-align:left; padding:6px 10px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; max-width:100% }
   .samples button:hover { border-color:var(--accent) }
   .samples small { display:block; color:var(--muted); font-size:11px }
+  .contact { margin-top:12px; padding:12px; border:1px solid var(--accent); border-radius:10px; white-space:normal; display:grid; gap:8px }
+  .contact b { font-size:14px }
+  .contact textarea, .contact input[type=text] { font:inherit; font-size:14px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); width:100% }
+  .contact textarea { resize:vertical; min-height:56px }
+  .contact label { font-size:13px; color:var(--muted); display:flex; gap:6px; align-items:center }
+  .contact .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+  .contact button { padding:6px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer }
+  .contact .err { color:var(--bad); font-size:13px }
+  .contact.sent { border-color:var(--good); color:var(--good) }
 </style>
 </head>
 <body>
@@ -65,11 +74,48 @@ const OUTCOME = {
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
 
+// Форма зворотного зв'язку одразу під відмовою (ТЗ 5.3): питання й артикул уже заповнені,
+// діалог прикріплюється лише за згодою користувача.
+function contactForm(question, reason, getTraceId) {
+  const f = el("form", "contact");
+  const article = document.getElementById("article").value || null;
+  f.append(el("b", "", "Залишити звернення менеджеру"));
+  const q = el("textarea"); q.value = question;
+  const contact = el("input"); contact.type = "text"; contact.placeholder = "Email або телефон для відповіді"; contact.required = true;
+  const attach = el("input"); attach.type = "checkbox"; attach.checked = true;
+  const attachLabel = el("label"); attachLabel.append(attach, "Прикріпити цей діалог до звернення");
+  const err = el("div", "err"), send = el("button", "", "Надіслати");
+  f.append(q);
+  if (article) f.append(el("label", "", "Товар: " + article));
+  const row = el("div", "row"); row.append(contact, send);
+  f.append(row, attachLabel, err);
+  f.onsubmit = async e => {
+    e.preventDefault(); err.textContent = "";
+    const c = contact.value.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$|^\+?[\d\s()-]{9,20}$/.test(c)) { err.textContent = "Вкажіть email або номер телефону."; return; }
+    send.disabled = true;
+    const resp = await fetch("/contact", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question: q.value.trim() || question, contact: contact.value, reason,
+        trace_id: getTraceId(), product_article: article, page_url: location.href,
+        session_id: attach.checked ? session : null})}).catch(() => null);
+    if (resp && resp.ok) {
+      const {id} = await resp.json();
+      f.className = "contact sent"; f.replaceChildren(el("b", "", `Звернення №${id} прийнято. Менеджер відповість на ${contact.value}.`));
+    } else {
+      const d = resp ? await resp.json().catch(() => null) : null;
+      err.textContent = "Не вдалося надіслати, спробуйте ще раз.";
+      send.disabled = false;
+    }
+  };
+  setTimeout(() => contact.focus(), 0);
+  return f;
+}
+
 async function ask(question) {
   log.append(el("div", "msg user", question));
   const box = el("div", "msg"), badges = el("div"), body = el("div"), info = el("div", "meta");
   box.append(badges, body); log.append(box); box.scrollIntoView({block: "end"});
-  const t0 = performance.now(); let firstToken = null, text = "";
+  const t0 = performance.now(); let firstToken = null, text = "", traceId = null;
   const resp = await fetch("/chat", {method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify({session_id: session, message: question,
       product_article: document.getElementById("article").value || null,
@@ -80,7 +126,10 @@ async function ask(question) {
     if (ev === "meta" && d.dangerous) badges.append(el("span", "badge warn", "безпека: звірте з інструкцією"));
     if (ev === "token") { if (firstToken === null) firstToken = performance.now() - t0; text += d.text; body.textContent = text; }
     if (ev === "retract") { text = ""; body.textContent = ""; }
-    if (ev === "refusal") { body.textContent = d.text; const o = OUTCOME[d.outcome]; if (o) badges.append(el("span", "badge " + o[1], o[0])); }
+    if (ev === "refusal") {
+      body.textContent = d.text; const o = OUTCOME[d.outcome]; if (o) badges.append(el("span", "badge " + o[1], o[0]));
+      if (d.show_feedback_form) box.append(contactForm(question, d.outcome, () => traceId));
+    }
     if (ev === "citations" && d.citations.length) {
       const c = el("div", "cites");
       if (d.from_other_product) c.append(el("div", "badge warn", "джерело з іншого товару"));
@@ -92,6 +141,7 @@ async function ask(question) {
       box.append(c);
     }
     if (ev === "done") {
+      traceId = d.trace_id ?? null;
       const total = Math.round(performance.now() - t0);
       info.append(el("span", "", `${firstToken !== null ? "перший токен " + Math.round(firstToken) + " мс · " : ""}усього ${total} мс`));
       if (d.trace_id) {

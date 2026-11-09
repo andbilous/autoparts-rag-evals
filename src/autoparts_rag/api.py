@@ -1,11 +1,12 @@
-"""HTTP API: POST /chat (SSE), POST /feedback, GET /pdf/{id}, GET /health; UI: / і /evals."""
+"""HTTP API: POST /chat (SSE), POST /feedback, POST /contact, GET /pdf/{id}, GET /health; UI: / і /evals."""
 
 import json
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sse_starlette.sse import EventSourceResponse
 
 from .db import connection
@@ -27,6 +28,28 @@ class FeedbackIn(BaseModel):
     trace_id: int
     useful: bool
     comment: str | None = Field(default=None, max_length=2000)
+
+
+CONTACT_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$|^\+?[\d\s()-]{9,20}$")
+
+
+class ContactIn(BaseModel):
+    """Звернення з форми, яка з'являється під відмовою асистента (ТЗ 5.3)."""
+    question: str = Field(min_length=1, max_length=2000)
+    contact: str = Field(min_length=5, max_length=128)
+    trace_id: int | None = None
+    reason: str | None = Field(default=None, max_length=32)
+    product_article: str | None = Field(default=None, max_length=64)
+    page_url: str | None = Field(default=None, max_length=500)
+    session_id: str | None = Field(default=None, max_length=128)   # передається, лише якщо користувач погодився
+
+    @field_validator("contact")
+    @classmethod
+    def email_or_phone(cls, v: str) -> str:
+        v = v.strip()
+        if not CONTACT_RE.match(v):
+            raise ValueError("вкажіть email або номер телефону")
+        return v
 
 
 @app.on_event("startup")
@@ -59,6 +82,20 @@ def feedback(body: FeedbackIn) -> dict:
         conn.execute("INSERT INTO feedback (trace_id, useful, comment) VALUES (%s, %s, %s)",
                      (body.trace_id, body.useful, body.comment))
     return {"ok": True}
+
+
+@app.post("/contact")
+def contact(body: ContactIn) -> dict:
+    with connection() as conn:
+        trace_id = body.trace_id
+        if trace_id is not None and not conn.execute("SELECT 1 FROM traces WHERE id = %s", (trace_id,)).fetchone():
+            trace_id = None
+        row = conn.execute(
+            "INSERT INTO contact_requests (trace_id, session_id, reason, question, product_article, page_url, contact)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (trace_id, body.session_id, body.reason, body.question, body.product_article, body.page_url, body.contact),
+        ).fetchone()
+    return {"ok": True, "id": row["id"]}
 
 
 @app.get("/pdf/{document_id}")

@@ -30,7 +30,10 @@ dashboard, and enforced by a GitHub Actions gate against a saved baseline.
   - Every number in an answer is checked against the cited sources. An answer with an
     unsupported number is retracted.
 - **Chat UI** (`/`): streaming answers (SSE), citations that open the PDF on the right page,
-  "was this helpful?" feedback, and sample questions taken from the testset.
+  "was this helpful?" feedback, and sample questions taken from the testset. When the assistant
+  refuses (out of scope, not in the documents, retracted answer), a contact form appears right
+  under the reply, pre-filled with the question and the product, and is stored in
+  `contact_requests` via `POST /contact`.
 - **Eval dashboard** (`/evals`) shows:
   - the latest report against the baseline;
   - stability across repeats;

@@ -268,3 +268,21 @@ def test_gate_skip_prefix_ignores_latency():
     assert gate(now, [], base)  # без skip час блокує
     assert gate(now, [], base, ("latency",)) == []
     assert gate({"pass": 0.5, "latency_total_p95": 5000}, [], base, ("latency",))  # якість усе одно блокує
+
+
+# ---------------------------------------------------------------- форма зворотного зв'язку
+
+@pytest.mark.parametrize("contact,ok", [
+    ("ivan@example.com", True), ("+380 67 123 45 67", True), ("(067) 123-45-67", True),
+    ("ivan", False), ("12345", False), ("ivan@example", False),
+])
+def test_contact_accepts_email_or_phone(contact, ok):
+    from pydantic import ValidationError
+
+    from autoparts_rag.api import ContactIn
+
+    if ok:
+        assert ContactIn(question="скільки коштує?", contact=contact).contact == contact.strip()
+    else:
+        with pytest.raises(ValidationError):
+            ContactIn(question="скільки коштує?", contact=contact)
