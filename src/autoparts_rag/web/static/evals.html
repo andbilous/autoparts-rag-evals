@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Метрики якості: автозапчастини</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2330; --muted:#667085; --line:#e4e7ec; --accent:#2f5bea;
+          --good:#127a3e; --warn:#a15c00; --bad:#b42318; --code:#eef2ff; --judge:#fff4e5; --human:#ecfdf3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151b; --card:#1b1f27; --ink:#e7e9ee; --muted:#9aa3b2; --line:#2c323d; --accent:#7c9cff;
+            --good:#4cc38a; --warn:#f0a945; --bad:#f97066; --code:#232a3d; --judge:#33291a; --human:#1a3326; }
+  }
+  * { box-sizing:border-box }
+  body { margin:0; font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink) }
+  header { display:flex; align-items:center; gap:14px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--card); flex-wrap:wrap; position:sticky; top:0; z-index:2 }
+  header h1 { font-size:16px; margin:0; font-weight:600 }
+  header select { font:inherit; padding:4px 8px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--ink) }
+  header a { color:var(--accent); text-decoration:none }
+  .run { color:var(--muted); font-size:13px }
+  main { max-width:1180px; margin:0 auto; padding:20px }
+  h2 { font-size:15px; margin:30px 0 4px; font-weight:600 }
+  h2 small, .sub { color:var(--muted); font-weight:400; font-size:13px }
+  .sub { margin:0 0 12px }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:12px }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:4px }
+  .card .top { display:flex; justify-content:space-between; gap:8px; align-items:baseline }
+  .card .name { font-weight:600 }
+  .card .sec { color:var(--muted); font-size:12px; white-space:nowrap }
+  .card .val { font-size:26px; font-weight:600; font-variant-numeric:tabular-nums; line-height:1.2 }
+  .card .delta { font-size:12px; color:var(--muted) }
+  .card .what { color:var(--muted); font-size:13px }
+  .card .where { font-size:11px; color:var(--muted); font-family:ui-monospace,monospace }
+  .kind { font-size:11px; padding:1px 7px; border-radius:99px; border:1px solid var(--line); white-space:nowrap }
+  .kind.code { background:var(--code) } .kind.judge { background:var(--judge) } .kind.human { background:var(--human) }
+  .ok { color:var(--good) } .fail { color:var(--bad) } .warn { color:var(--warn) }
+  .banner { border-radius:12px; padding:12px 16px; border:1px solid currentColor; background:var(--card); margin-top:8px }
+  .banner ul { margin:6px 0 0; padding-left:20px; color:var(--ink) }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; font-variant-numeric:tabular-nums }
+  th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); vertical-align:top }
+  th { font-weight:600; font-size:12px; color:var(--muted); background:var(--bg) }
+  tr.row { cursor:pointer } tr.row:hover td { background:var(--bg) }
+  td.c { text-align:center } .mono { font-family:ui-monospace,monospace; font-size:12px }
+  .cell { display:inline-block; width:22px; text-align:center; border-radius:4px; margin-right:2px }
+  .cell.y { color:var(--good) } .cell.n { color:var(--bad); font-weight:700 }
+  .detail td { background:var(--bg); white-space:pre-wrap }
+  .filters { display:flex; gap:8px; margin:0 0 8px; flex-wrap:wrap }
+  .filters button { font:inherit; font-size:13px; padding:3px 10px; border-radius:99px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer }
+  .filters button.on { border-color:var(--accent); color:var(--accent) }
+  .empty { background:var(--card); border:1px dashed var(--line); border-radius:12px; padding:16px; color:var(--muted) }
+  code { font-family:ui-monospace,monospace; font-size:12px; background:var(--bg); padding:1px 5px; border-radius:4px }
+  .legend { display:flex; gap:10px; flex-wrap:wrap; align-items:center; color:var(--muted); font-size:13px }
+</style>
+</head>
+<body>
+<header>
+  <h1>Метрики якості</h1>
+  <select id="pick"></select>
+  <span class="run" id="run"></span>
+  <span style="margin-left:auto"><a href="/">← Чат</a></span>
+</header>
+<main id="app"><div class="empty">Завантаження…</div></main>
+<script>
+// Кожна метрика прив'язана до розділу «Підготовки до заняття 9». kind: code = детермінована (код),
+// judge = LLM-суддя, human = людина, measure = вимір (час, гроші).
+const KIND = {code: "код", judge: "суддя", human: "людина", measure: "вимір"};
+const AI = [
+  {key: "pass", name: "Кейс пройшов", sec: "4.2", kind: "code", fmt: "frac",
+   what: "поведінка як очікували, цитата веде на потрібну сторінку, і всі числа з еталона є в тексті", where: "evaluation/case.case_pass"},
+  {key: "numbers_found", name: "Правильність: числа", sec: "4.2 facts", kind: "code", fmt: "frac",
+   what: "частка очікуваних чисел (момент затяжки, тиск, розмір), що є у відповіді", where: "verify.extract_numbers"},
+  {key: "correct_judge", name: "Правильність: суддя", sec: "4.2 judge", kind: "judge", fmt: "frac",
+   what: "суддя порівнює ключовий факт відповіді з еталоном (reference) за змістом", where: "llm.judge_correct"},
+  {key: "numbers_found_dangerous", name: "Числа в питаннях безпеки", sec: "4.2", kind: "code", fmt: "frac",
+   what: "те саме, лише на питаннях про гальма, кермо, затяжку: помилка тут найдорожча", where: "evaluation/aggregate.summarize"},
+  {key: "_format", name: "Формат: відповіді з цитатами", sec: "4.3", kind: "code", fmt: "frac",
+   what: "частка відповідей, де є хоча б одне посилання [n] на виданий фрагмент", where: "pipeline.extract_citations"},
+  {key: "answers_with_invalid_citations", name: "Формат: невалідні мітки", sec: "4.3", kind: "code", fmt: "int", lower: true,
+   what: "відповіді з міткою [n], якої немає серед виданих фрагментів", where: "evaluation/case.run_item"},
+  {key: "pass_at_1", name: "Стабільність: pass@1", sec: "4.4", kind: "code", fmt: "frac",
+   what: "середня частка прогонів, у яких кейс пройшов; потрібен rag eval --repeat 3", where: "evaluation/stability.stability"},
+  {key: "pass_all", name: "Стабільність: пройшли щоразу", sec: "4.4", kind: "code", fmt: "frac",
+   what: "частка кейсів, що пройшли в кожному повторі", where: "evaluation/stability.stability"},
+  {key: "correct_refusal_no_info", name: "Abstain: немає в документах", sec: "4.5", kind: "code", fmt: "frac",
+   what: "бот відмовив там, де відповіді в інструкціях немає", where: "outcome у відповіді"},
+  {key: "correct_refusal_out_of_scope", name: "Abstain: поза темою", sec: "4.5", kind: "code", fmt: "frac",
+   what: "бот відмовив на питання не про запчастини", where: "outcome у відповіді"},
+  {key: "false_refusal", name: "False abstain", sec: "4.5", kind: "code", fmt: "frac", lower: true,
+   what: "бот відмовив, хоча відповідь у документах є", where: "outcome у відповіді"},
+  {key: "dangerous_flag_recall", name: "Позначка «безпека»", sec: "додатково", kind: "code", fmt: "frac",
+   what: "на небезпечних питаннях бот додав попередження", where: "pipeline.is_dangerous"},
+  {key: "cost_usd_per_question", name: "Ціна на питання", sec: "4.6", kind: "measure", fmt: "usd", lower: true,
+   what: "токени з відповіді API × ціна моделі", where: "models.llm.Usage"},
+  {key: "tokens_in_per_question", name: "Токени на питання", sec: "4.6", kind: "measure", fmt: "int", lower: true,
+   what: "вхідні токени всіх викликів (аналіз + відповідь); вихідні рядком вище", where: "models.llm.Usage", extra: "tokens_out_per_question"},
+  {key: "latency_first_token_p50", name: "Перший токен, p50", sec: "4.6", kind: "measure", fmt: "ms", lower: true,
+   what: "скільки користувач чекає, поки почне з'являтися текст", where: "pipeline.mark"},
+  {key: "latency_total_p95", name: "Повна відповідь, p95", sec: "4.6", kind: "measure", fmt: "ms", lower: true,
+   what: "95 % відповідей швидші за це", where: "pipeline.mark"},
+  {key: "_useful", name: "Корисність", sec: "4.7", kind: "human", fmt: "frac",
+   what: "частка відповідей, позначених «так» у чаті за 7 днів; з офлайн-набору її не порахувати", where: "таблиця feedback"},
+];
+const RAG = [
+  {key: "recall@20_pre_rerank", name: "recall@20 до reranker", sec: "5.1", kind: "code", fmt: "frac",
+   what: "потрібна сторінка серед 20 кандидатів hybrid-пошуку", where: "evaluation/rag_metrics.recall"},
+  {key: "recall@5", name: "recall@5", sec: "5.1", kind: "code", fmt: "frac",
+   what: "потрібна сторінка серед 5 фрагментів після reranker", where: "evaluation/rag_metrics.recall"},
+  {key: "in_context", name: "in_context", sec: "5.2", kind: "code", fmt: "frac",
+   what: "потрібна сторінка серед фрагментів, що пройшли поріг і реально пішли в промпт", where: "pipeline.context_ids"},
+  {key: "_cited", name: "cited", sec: "5.3", kind: "code", fmt: "frac",
+   what: "серед цитат відповіді є потрібна сторінка", where: "evaluation/rag_metrics.source_hit"},
+  {key: "citation_precision", name: "Точність цитат", sec: "5.3", kind: "code", fmt: "frac",
+   what: "частка цитат, що ведуть на правильні сторінки", where: "evaluation/case.run_item"},
+  {key: "faithfulness", name: "Groundedness", sec: "5.4", kind: "judge", fmt: "frac",
+   what: "частка тверджень, підкріплених процитованими фрагментами; суддю спершу калібруємо (розділ 8)", where: "models.llm.judge"},
+  {key: "answers_with_unsupported_numbers", name: "Числа без джерела", sec: "5.4", kind: "code", fmt: "int", lower: true,
+   what: "відповіді, де є число, якого немає в процитованих фрагментах; детермінована частина groundedness", where: "verify.verify_numbers"},
+  {key: "dangerous_answers_with_unsupported_numbers", name: "…у питаннях безпеки", sec: "5.4", kind: "code", fmt: "int", lower: true,
+   what: "те саме для небезпечних питань; gate не допускає жодної нової", where: "evaluation/regression.COUNTS"},
+];
+
+const $ = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) k === "class" ? e.className = v : k.startsWith("on") ? e[k] = v : e.setAttribute(k, v);
+  for (const k of kids.flat()) if (k != null) e.append(k instanceof Node ? k : String(k));
+  return e;
+};
+const fmt = (v, f) => v == null ? "—" : f === "frac" ? Number(v).toFixed(2) : f === "usd" ? "$" + Number(v).toFixed(4)
+  : f === "ms" ? Math.round(v) + " мс" : f === "int" ? String(v) : String(v);
+const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+
+let state = {};
+
+async function boot() {
+  const list = await (await fetch("/api/evals/reports")).json();
+  const pick = document.getElementById("pick");
+  if (!list.reports.length) {
+    document.getElementById("app").replaceChildren($("div", {class: "empty"},
+      "Звітів ще немає. Запустіть ", $("code", {}, "uv run rag eval --repeat 3"),
+      ", потім ", $("code", {}, "uv run rag gate --save-baseline"), " на версії, якій довіряєте, і оновіть сторінку."));
+    pick.style.display = "none"; return;
+  }
+  for (const r of list.reports) pick.append($("option", {value: r.name},
+    `${r.started} · n=${r.n}${r.repeat > 1 ? " ×" + r.repeat : ""} · pass ${fmt(r.pass, "frac")}`));
+  pick.onchange = () => load(pick.value);
+  state.calibration = list.calibration ? await (await fetch("/api/evals/calibration/" + list.calibration)).json() : null;
+  try { state.online = await (await fetch("/api/online?days=7")).json(); } catch { state.online = null; }
+  load(list.reports[0].name);
+}
+
+async function load(name) {
+  const d = await (await fetch("/api/evals/report/" + encodeURIComponent(name))).json();
+  const r = d.report, s = {...r.summary};
+  const answered = r.rows.filter(x => x.outcome === "answer");
+  s._format = mean(answered.map(x => x.citations.length ? 1 : 0));
+  s._cited = mean(r.rows.filter(x => x.expected_behavior === "answer" && x.citation_hit != null).map(x => x.citation_hit ? 1 : 0));
+  s._useful = state.online?.useful_rate ?? null;
+  const c = r.config;
+  document.getElementById("run").textContent =
+    `${c.answer_model} · reranker ${c.reranker_model.split("/").pop()} · поріг ${c.rerank_threshold} · top-${c.context_top_k} · ${c.n} питань${c.repeat > 1 ? " × " + c.repeat : ""}`;
+  const app = document.getElementById("app");
+  app.replaceChildren(
+    gateBanner(d),
+    lintSection(r),
+    $("div", {class: "legend", style: "margin-top:14px"}, "Чим рахується:",
+      ...Object.entries(KIND).map(([k, v]) => $("span", {class: "kind " + k}, v)),
+      "· номер біля метрики = розділ «Підготовки до заняття 9»"),
+    $("h2", {}, "Метрики AI-системи ", $("small", {}, "розділ 4: чи правильно, стабільно, вчасно й недорого відповідає бот")),
+    cards(AI, s, d.baseline?.summary),
+    $("h2", {}, "Метрики RAG ", $("small", {}, "розділ 5: де ламається, у пошуку чи в генерації")),
+    $("p", {class: "sub"}, "Читайте зліва направо. Якщо recall@20 високий, а recall@5 низький, винен reranker. Якщо recall@5 високий, а cited низький, модель цитує не те. Якщо cited високий, а groundedness низький, модель дописує від себе."),
+    cards(RAG, s, d.baseline?.summary),
+    stabilitySection(r),
+    calibrationSection(),
+    gateTable(d),
+    sweepSection(r),
+    casesSection(r),
+    onlineSection(),
+  );
+}
+
+function delta(m, v, base) {
+  if (!base || base[m.key] == null || v == null || m.key.startsWith("_")) return null;
+  const diff = v - base[m.key];
+  if (Math.abs(diff) < 1e-9) return $("span", {class: "delta"}, "як у baseline");
+  const better = m.lower ? diff < 0 : diff > 0;
+  const sign = diff > 0 ? "+" : "−";
+  const abs = m.fmt === "usd" ? "$" + Math.abs(diff).toFixed(4) : m.fmt === "ms" ? Math.round(Math.abs(diff)) + " мс"
+    : m.fmt === "int" ? Math.abs(diff) : Math.abs(diff).toFixed(2);
+  return $("span", {class: "delta " + (better ? "ok" : "fail")}, `${better ? "▲" : "▼"} ${sign}${abs} до baseline (${fmt(base[m.key], m.fmt)})`);
+}
+
+function cards(defs, s, base) {
+  return $("div", {class: "grid"}, defs.map(m => $("div", {class: "card"},
+    $("div", {class: "top"}, $("span", {class: "name"}, m.name), $("span", {class: "sec"}, m.sec)),
+    $("div", {class: "val"}, fmt(s[m.key], m.fmt)),
+    delta(m, s[m.key], base),
+    m.extra ? $("div", {class: "delta"}, "вихідні: " + fmt(s[m.extra], "int")) : null,
+    $("div", {class: "what"}, m.what),
+    $("div", {class: "top"}, $("span", {class: "where"}, m.where), $("span", {class: "kind " + m.kind}, KIND[m.kind] + (m.lower ? " · менше = краще" : ""))),
+  )));
+}
+
+function gateBanner(d) {
+  if (!d.gate) return $("div", {class: "banner warn"}, "Gate: немає eval/baseline.json. Збережіть baseline командою ",
+    $("code", {}, "uv run rag gate --save-baseline"), ", і тут з'явиться порівняння (розділ 9).");
+  if (!d.gate.length) return $("div", {class: "banner ok"}, `✓ GATE ПРОЙДЕНО проти baseline ${d.baseline.source}. Цю версію можна викочувати.`);
+  return $("div", {class: "banner fail"}, `✗ GATE НЕ ПРОЙДЕНО проти baseline ${d.baseline.source}. CI зупинив би реліз:`,
+    $("ul", {}, d.gate.map(g => $("li", {class: "mono"}, g))));
+}
+
+function lintSection(r) {
+  if (!r.lint) return null;
+  if (!r.lint.length) return $("p", {class: "sub ok", style: "margin-top:10px"}, "✓ Lint тестсету (розділ 2.1): документи, сторінки, числа й еталони на місці.");
+  return $("div", {class: "banner warn"}, "Lint тестсету (розділ 2.1): " + r.lint.length + " проблем. Метрики на цих кейсах можуть бути хибними:",
+    $("ul", {}, r.lint.slice(0, 8).map(x => $("li", {class: "mono"}, x)), r.lint.length > 8 ? $("li", {}, "і ще " + (r.lint.length - 8)) : null));
+}
+
+function stabilitySection(r) {
+  const st = r.stability;
+  const head = [$("h2", {}, "Стабільність по кейсах ", $("small", {}, "розділ 4.4"))];
+  if (!st) return $("div", {}, head, $("div", {class: "empty"}, "Цей звіт з одного прогону. Запустіть ",
+    $("code", {}, "uv run rag eval --repeat 3"), ", щоб побачити flaky-кейси."));
+  const runs = [r.rows, ...(r.extra_runs || [])];
+  const byId = id => runs.map(run => run.find(x => x.id === id)?.pass);
+  const unstable = Object.entries(st.rates).filter(([, v]) => v < 1).sort((a, b) => a[1] - b[1]);
+  return $("div", {}, head,
+    $("p", {class: "sub"}, `${st.runs} прогони. Flaky: ${st.flaky.join(", ") || "немає"}. Нижче лише кейси, що хоч раз не пройшли.`),
+    unstable.length ? $("table", {}, $("tr", {}, $("th", {}, "Кейс"), $("th", {}, "Прогони"), $("th", {}, "Частка"), $("th", {}, "Питання")),
+      unstable.map(([id, rate]) => $("tr", {},
+        $("td", {class: "mono"}, id),
+        $("td", {}, byId(id).map(p => $("span", {class: "cell " + (p ? "y" : "n")}, p ? "✓" : "✗"))),
+        $("td", {}, rate.toFixed(2) + (rate > 0 ? " · flaky" : "")),
+        $("td", {}, r.rows.find(x => x.id === id)?.question || ""))))
+      : $("div", {class: "empty"}, "Усі кейси пройшли в кожному прогоні."));
+}
+
+function calibrationSection() {
+  const c = state.calibration;
+  const head = $("h2", {}, "Калібрування судді ", $("small", {}, "розділ 8: чи можна вірити groundedness"));
+  if (!c) return $("div", {}, head, $("div", {class: "empty"}, "Розмітки ще немає. ",
+    $("code", {}, "uv run rag calibrate --dump"), " вивантажить відповіді в eval/labels.jsonl. Поставте faithful: true/false вручну, потім ",
+    $("code", {}, "uv run rag calibrate"), "."));
+  const row = (label, k, x) => $("tr", {}, $("td", {}, label, " ", $("span", {class: "kind " + k}, KIND[k])),
+    $("td", {}, x.n), $("td", {}, fmt(x.agreement, "frac")), $("td", {class: x.false_pass > 0.05 ? "fail" : ""}, fmt(x.false_pass, "frac")),
+    $("td", {}, fmt(x.false_fail, "frac")), $("td", {class: "mono"}, (x.disagreements || []).join(" ") || "—"));
+  return $("div", {}, head,
+    $("p", {class: "sub"}, "Порівнюємо суддю groundedness з людиною. False pass найнебезпечніший: суддя пропустив відповідь, яку людина забракувала. Суддю правильності так само варто звірити з розміткою, перш ніж ставити його в gate."),
+    $("table", {}, $("tr", {}, ["Хто оцінює", "n", "agreement", "false pass", "false fail", "розбіжності"].map(h => $("th", {}, h))),
+      row("LLM-суддя (faithfulness)", "judge", c.judge), row("Код (лише числа)", "code", c.numbers_code)));
+}
+
+function gateTable(d) {
+  if (!d.baseline) return null;
+  const s = d.report.summary, b = d.baseline.summary;
+  const failed = new Set((d.gate || []).map(g => g.split(":")[0]));
+  const lower = new Set(d.lower_is_better);
+  const keys = Object.keys(b).filter(k => typeof b[k] === "number" && !["n", "judge_cost_usd", "cost_usd_all_runs"].includes(k));
+  const regress = (d.gate || []).filter(g => g.startsWith("регресія"));
+  return $("div", {},
+    $("h2", {}, "Gate проти baseline ", $("small", {}, "розділ 9: допуск 0.05 для часток, +25 % для часу й грошей, 0 для лічильників")),
+    $("table", {}, $("tr", {}, ["Метрика", "baseline", "зараз", "напрям", "статус"].map(h => $("th", {}, h))),
+      keys.map(k => $("tr", {}, $("td", {class: "mono"}, k), $("td", {}, b[k]), $("td", {}, s[k] ?? "—"),
+        $("td", {}, lower.has(k) ? "↓ менше = краще" : "↑ більше = краще"),
+        $("td", {class: failed.has(k) ? "fail" : "ok"}, failed.has(k) ? "✗ гірше за допуск" : "✓")))),
+    regress.length ? $("p", {class: "sub fail", style: "margin-top:8px"}, "Нові провали кейсів: " + regress.map(g => g.split(": ")[1]).join(", ")) : null);
+}
+
+function sweepSection(r) {
+  if (!r.sweep?.length) return null;
+  return $("div", {},
+    $("h2", {}, "Поріг «не знаю» ", $("small", {}, "розділ 4.5: abstain і false abstain тягнуть у різні боки")),
+    $("p", {class: "sub"}, `Що було б при іншому порозі rerank-score, без нових викликів моделі. Зараз поріг ${r.config.rerank_threshold}.`),
+    $("table", {}, $("tr", {}, ["поріг", "false abstain (відмовили, хоча відповідь є)", "питання без відповіді, зупинені порогом"].map(h => $("th", {}, h))),
+      r.sweep.map(x => $("tr", {style: x.threshold === r.config.rerank_threshold ? "font-weight:600" : ""},
+        $("td", {}, x.threshold), $("td", {}, fmt(x.false_refusal, "frac")), $("td", {}, fmt(x.no_info_blocked_by_threshold, "frac"))))));
+}
+
+function casesSection(r) {
+  const wrap = $("div", {}), tbody = $("tbody");
+  let filter = "fail";
+  const filters = {fail: ["Не пройшли", x => !x.pass], all: ["Усі", () => true],
+    unsupported: ["Числа без джерела", x => x.numbers_unsupported?.length], refusal: ["Відмови", x => x.outcome !== "answer"]};
+  const bar = $("div", {class: "filters"});
+  const draw = () => {
+    bar.replaceChildren(...Object.entries(filters).map(([k, [label, f]]) => $("button", {class: k === filter ? "on" : "",
+      onclick: () => { filter = k; draw(); }}, `${label} (${r.rows.filter(f).length})`)));
+    tbody.replaceChildren();
+    for (const x of r.rows.filter(filters[filter][1])) {
+      const tr = $("tr", {class: "row"},
+        $("td", {class: "mono"}, x.id), $("td", {}, x.category), $("td", {class: "mono"}, x.expected_behavior),
+        $("td", {class: "mono " + (x.outcome === x.expected_behavior || (x.expected_behavior !== "answer" && x.outcome !== "answer") ? "" : "fail")}, x.outcome),
+        $("td", {class: "c"}, fmt(x["recall@5"], "frac")), $("td", {class: "c"}, x.citation_hit == null ? "—" : x.citation_hit ? "✓" : "✗"),
+        $("td", {class: "c"}, fmt(x.numbers_found, "frac")), $("td", {class: "c"}, x.correct_judge == null ? "—" : x.correct_judge ? "✓" : "✗"),
+        $("td", {class: "c"}, fmt(x.faithfulness, "frac")),
+        $("td", {class: "c " + (x.pass ? "ok" : "fail")}, x.pass ? "✓" : "✗"));
+      tr.onclick = () => {
+        if (tr.nextSibling?.classList.contains("detail")) { tr.nextSibling.remove(); return; }
+        tr.after($("tr", {class: "detail"}, $("td", {colspan: 10},
+          $("b", {}, "Питання: "), x.question, "\n",
+          x.rewritten_query ? ["Переписаний запит: ", x.rewritten_query, "\n"] : null,
+          $("b", {}, "Відповідь: "), x.answer || "—", "\n",
+          x.citations?.length ? ["Цитати: ", x.citations.map(c => `[${c.n}] ${c.doc_key} с.${c.page_from}`).join("; "), "\n"] : null,
+          x.numbers_unsupported?.length ? $("span", {class: "fail"}, "Числа без джерела: " + x.numbers_unsupported.join(", ") + "\n") : null,
+          x.correct_reason ? $("span", {class: x.correct_judge ? "" : "fail"}, "Суддя правильності: " + x.correct_reason + "\n") : null,
+          x.invalid_citations?.length ? $("span", {class: "fail"}, "Невалідні мітки: " + x.invalid_citations.join(", ") + "\n") : null,
+          x.unsupported_claims?.length ? $("span", {class: "warn"}, "Суддя: не підкріплено: " + x.unsupported_claims.join(" | ") + "\n") : null,
+          `max rerank score ${x.max_score ?? "—"} · у промпті ${x.context_ids?.length ?? "—"} фрагм. · ${x.tokens_in ?? "—"}/${x.tokens_out ?? "—"} токенів · ${x.latency_ms?.total ?? "—"} мс · $${(x.cost_usd || 0).toFixed(4)}`)));
+      };
+      tbody.append(tr);
+    }
+  };
+  draw();
+  wrap.append($("h2", {}, "Кейси ", $("small", {}, "клікніть рядок, щоб побачити відповідь і цитати")), bar,
+    $("table", {}, $("thead", {}, $("tr", {}, ["id", "категорія", "очікували", "вийшло", "recall@5", "cited", "числа", "суддя", "grounded", "pass"].map(h => $("th", {}, h)))), tbody));
+  return wrap;
+}
+
+function onlineSection() {
+  const o = state.online;
+  const head = [$("h2", {}, "Продакшн: живий трафік за 7 днів ", $("small", {}, "те, чого офлайн-набір не бачить")),
+    $("p", {class: "sub"}, "Офлайн-eval перевіряє 53 питання, які ми придумали. Тут запити справжніх користувачів із чату і їхні оцінки. Відповіді з оцінкою «ні» варто переносити в eval/questions.jsonl.")];
+  if (!o) return $("div", {}, head, $("div", {class: "empty"}, "Немає з'єднання з базою."));
+  if (!o.requests) return $("div", {}, head, $("div", {class: "empty"}, "Запитів ще не було. Поставте кілька питань у чаті й оцініть відповіді."));
+  const tile = (name, v, what) => $("div", {class: "card"}, $("span", {class: "name"}, name), $("div", {class: "val"}, v), $("div", {class: "what"}, what));
+  const refusals = Object.entries(o.outcomes).filter(([k]) => k !== "answer").reduce((a, [, n]) => a + n, 0);
+  return $("div", {}, head,
+    $("div", {class: "grid"},
+      tile("Запитів", o.requests, Object.entries(o.outcomes).map(([k, n]) => `${k}: ${n}`).join(" · ")),
+      tile("Частка відмов", fmt(refusals / o.requests, "frac"), "різкий ріст означає, що питають про те, чого немає в документах"),
+      tile("Корисність", fmt(o.useful_rate, "frac"), `${o.feedback_n} оцінок у чаті`),
+      tile("Відповіді з неперевіреними числами", o.answers_unverified, "verify_numbers не знайшов число в джерелах"),
+      tile("Перший токен, p50", fmt(o.latency_first_token_p50, "ms"), `повна відповідь p50 ${fmt(o.latency_total_p50, "ms")}, p95 ${fmt(o.latency_total_p95, "ms")}`),
+      tile("Ціна на запит", fmt(o.cost_usd_per_request, "usd"), `усього ${fmt(o.cost_usd_total, "usd")}`)),
+    o.not_useful.length ? $("div", {style: "margin-top:12px"}, $("table", {},
+      $("tr", {}, ["trace", "питання", "outcome", "коментар"].map(h => $("th", {}, h))),
+      o.not_useful.map(x => $("tr", {}, $("td", {class: "mono"}, x.id), $("td", {}, x.question), $("td", {class: "mono"}, x.outcome), $("td", {}, x.comment || "—"))))) : null);
+}
+
+boot().catch(e => document.getElementById("app").replaceChildren($("div", {class: "empty"}, "Помилка: " + e)));
+</script>
+</body>
+</html>

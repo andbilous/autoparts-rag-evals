@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG-асистент автозапчастин: архітектура і якість</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Інженерний аркуш: світлий фон, графіт, помаранчевий для номерів шарів, червоний для гілок відмови. Діаграма на всю ширину, текст вузькою колонкою. */
+  --bg: #f6f6f3;
+  --surface: #ffffff;
+  --fg: #23262b;
+  --muted: #646a73;
+  --line: #c9ccd1;
+  --accent: #c2410c;
+  --warn: #b42318;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #16181c;
+    --surface: #1f2228;
+    --fg: #e6e7ea;
+    --muted: #9aa0a9;
+    --line: #3d424b;
+    --accent: #fb8a4c;
+    --warn: #f27066;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #16181c;
+  --surface: #1f2228;
+  --fg: #e6e7ea;
+  --muted: #9aa0a9;
+  --line: #3d424b;
+  --accent: #fb8a4c;
+  --warn: #f27066;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.55;
+}
+main {
+  max-width: 1340px;
+  margin: 0 auto;
+  padding: 40px 20px 64px;
+  display: grid;
+  gap: 28px;
+}
+.prose { max-width: 68ch; }
+h1, h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-wrap: balance;
+  margin: 0;
+  line-height: 1.15;
+}
+h1 { font-size: 2rem; }
+h2 { font-size: 1.4rem; margin-top: 16px; }
+p { margin: 0 0 12px; }
+.meta { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+figure {
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px;
+  overflow-x: auto;
+}
+figure svg { display: block; width: 100%; min-width: 980px; height: auto; color: var(--fg); }
+figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 10px; max-width: 80ch; }
+
+/* SVG */
+.box { fill: var(--surface); stroke: var(--fg); stroke-width: 1.2; }
+.box.ext { stroke-dasharray: 5 3; }
+.box.store { fill: var(--bg); }
+.box.form { stroke: var(--warn); }
+.t { font-family: var(--font-body); font-size: 13px; font-weight: 600; fill: currentColor; text-anchor: middle; }
+.s { font-family: var(--font-body); font-size: 11px; fill: var(--muted); text-anchor: middle; }
+.lab { font-family: var(--font-mono); font-size: 11px; fill: var(--muted); }
+.lane { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; fill: var(--muted); }
+.ln { fill: none; stroke: currentColor; stroke-width: 1.2; }
+.ln.warn { stroke: var(--warn); stroke-dasharray: 5 3; }
+.labw { font-family: var(--font-mono); font-size: 11px; fill: var(--warn); }
+.mk { fill: currentColor; }
+.mkw { fill: var(--warn); }
+.sep { stroke: var(--line); stroke-width: 1; }
+.badge { fill: var(--accent); }
+.bn { font-family: var(--font-mono); font-size: 11px; font-weight: 500; fill: var(--surface); text-anchor: middle; }
+
+/* table */
+.tablewrap { overflow-x: auto; }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 860px;
+  font-size: 0.92rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--font-mono); font-size: 0.75rem; font-weight: 500; color: var(--muted); letter-spacing: 0.04em; }
+td.n { width: 44px; }
+.pill {
+  display: inline-block;
+  min-width: 24px;
+  padding: 1px 7px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+td.goal { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.note { color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<main>
+
+<header class="prose">
+  <h1>RAG-асистент для магазину автозапчастин: архітектура і вимірювання якості</h1>
+  <div class="meta">до ТЗ v0.1 · 05.11.2026</div>
+</header>
+
+<section class="prose">
+  <p>Покупець пише в чат на сторінці товару, і за кілька секунд запит проходить дев'ять кроків. Помилка на будь-якому з них дає ту саму погану відповідь. Тому якість вимірюється окремо на кожному шарі: номер у помаранчевому колі на схемі відповідає рядку таблиці метрик нижче.</p>
+</section>
+
+<figure>
+<svg viewBox="0 0 1300 640" role="img" aria-label="Архітектура: онлайн-конвеєр запиту від чат-віджета до відповіді з цитатами, гілки відмови у форму зворотного зв'язку, офлайн-індексація PDF у PostgreSQL з pgvector, номери шарів для метрик якості.">
+  <defs>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="w1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mkw" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <text class="lane" x="30" y="24">ОНЛАЙН · ЗАПИТ ПОКУПЦЯ</text>
+
+  <!-- Row 1 -->
+  <rect class="box" x="30" y="70" width="170" height="64" rx="4"/>
+  <text class="t" x="115" y="98">Чат-віджет</text>
+  <text class="s" x="115" y="116">сайт · артикул сторінки</text>
+
+  <rect class="box" x="250" y="70" width="170" height="64" rx="4"/>
+  <text class="t" x="335" y="98">API (FastAPI)</text>
+  <text class="s" x="335" y="116">rate limit · маскування PII</text>
+
+  <rect class="box ext" x="470" y="70" width="170" height="64" rx="4"/>
+  <text class="t" x="555" y="98">Класифікатор</text>
+  <text class="s" x="555" y="116">намір · запит · артикули</text>
+
+  <rect class="box ext" x="690" y="70" width="170" height="64" rx="4"/>
+  <text class="t" x="775" y="98">Embedding запиту</text>
+  <text class="s" x="775" y="116">хмарний API</text>
+
+  <rect class="box" x="910" y="70" width="170" height="64" rx="4"/>
+  <text class="t" x="995" y="98">Гібридний пошук</text>
+  <text class="s" x="995" y="116">BM25 + вектор + фільтр</text>
+
+  <!-- DB -->
+  <rect class="box store" x="1120" y="70" width="160" height="204" rx="4"/>
+  <text class="t" x="1200" y="98">PostgreSQL</text>
+  <text class="t" x="1200" y="116">+ pgvector</text>
+  <text class="s" x="1200" y="150">chunk і метадані</text>
+  <text class="s" x="1200" y="168">вектори, HNSW</text>
+  <text class="s" x="1200" y="186">tsvector з лемами</text>
+  <text class="s" x="1200" y="204">діалоги й оцінки</text>
+  <text class="s" x="1200" y="252">керований, окремо</text>
+  <text class="s" x="1200" y="266">від бази сайту</text>
+
+  <!-- Row 2 -->
+  <rect class="box ext" x="910" y="210" width="170" height="64" rx="4"/>
+  <text class="t" x="995" y="238">Reranker</text>
+  <text class="s" x="995" y="256">топ-50 → топ-5</text>
+
+  <rect class="box" x="690" y="210" width="170" height="64" rx="4"/>
+  <text class="t" x="775" y="238">Поріг достатності</text>
+  <text class="s" x="775" y="256">бал після rerank</text>
+
+  <rect class="box ext" x="470" y="210" width="170" height="64" rx="4"/>
+  <text class="t" x="555" y="238">Генерація</text>
+  <text class="s" x="555" y="256">лише з фрагментів, цитати</text>
+
+  <rect class="box" x="250" y="210" width="170" height="64" rx="4"/>
+  <text class="t" x="335" y="238">Постперевірка</text>
+  <text class="s" x="335" y="256">числа є в джерелі?</text>
+
+  <rect class="box" x="30" y="210" width="170" height="64" rx="4"/>
+  <text class="t" x="115" y="238">Відповідь</text>
+  <text class="s" x="115" y="256">цитата · стор. PDF · дисклеймер</text>
+
+  <!-- Form -->
+  <rect class="box form" x="30" y="304" width="170" height="48" rx="4"/>
+  <text class="t" x="115" y="325">Форма зв'язку</text>
+  <text class="s" x="115" y="342">питання + артикул</text>
+
+  <!-- main flow arrows -->
+  <line class="ln" x1="200" y1="102" x2="248" y2="102" marker-end="url(#a1)"/>
+  <line class="ln" x1="420" y1="102" x2="468" y2="102" marker-end="url(#a1)"/>
+  <line class="ln" x1="640" y1="102" x2="688" y2="102" marker-end="url(#a1)"/>
+  <line class="ln" x1="860" y1="102" x2="908" y2="102" marker-end="url(#a1)"/>
+  <line class="ln" x1="1082" y1="102" x2="1118" y2="102" marker-start="url(#a1)" marker-end="url(#a1)"/>
+  <line class="ln" x1="995" y1="134" x2="995" y2="208" marker-end="url(#a1)"/>
+  <text class="lab" x="1003" y="176">кандидати</text>
+  <line class="ln" x1="910" y1="242" x2="862" y2="242" marker-end="url(#a1)"/>
+  <line class="ln" x1="690" y1="242" x2="642" y2="242" marker-end="url(#a1)"/>
+  <line class="ln" x1="470" y1="242" x2="422" y2="242" marker-end="url(#a1)"/>
+  <line class="ln" x1="250" y1="242" x2="202" y2="242" marker-end="url(#a1)"/>
+  <line class="ln" x1="115" y1="210" x2="115" y2="136" marker-end="url(#a1)"/>
+  <text class="lab" x="123" y="177">потоком</text>
+
+  <!-- regenerate loop -->
+  <path class="ln" d="M 335 274 C 335 297, 555 297, 555 276" marker-end="url(#a1)"/>
+  <text class="lab" x="445" y="311" text-anchor="middle">не збіглось → регенерація</text>
+
+  <!-- refusal branches -->
+  <path class="ln warn" d="M 555 70 L 555 50 L 14 50 L 14 328 L 28 328" marker-end="url(#w1)"/>
+  <text class="labw" x="250" y="44">поза межами: доставка, ціна, замовлення</text>
+  <path class="ln warn" d="M 775 274 L 775 332 L 202 332" marker-end="url(#w1)"/>
+  <text class="labw" x="600" y="348">мало контексту</text>
+
+  <!-- offline lane -->
+  <line class="sep" x1="10" y1="372" x2="1290" y2="372"/>
+  <text class="lane" x="30" y="396">ОФЛАЙН · ІНДЕКСАЦІЯ ДОКУМЕНТІВ</text>
+
+  <rect class="box store" x="30" y="410" width="170" height="64" rx="4"/>
+  <text class="t" x="115" y="438">S3: PDF виробників</text>
+  <text class="s" x="115" y="456">оригінали і версії</text>
+
+  <rect class="box" x="250" y="410" width="170" height="64" rx="4"/>
+  <text class="t" x="335" y="438">Розбір і OCR</text>
+  <text class="s" x="335" y="456">таблиці цілими</text>
+
+  <rect class="box" x="470" y="410" width="170" height="64" rx="4"/>
+  <text class="t" x="555" y="438">Нормалізація, chunk</text>
+  <text class="s" x="555" y="456">артикули, сторінки, хеш</text>
+
+  <rect class="box ext" x="690" y="410" width="170" height="64" rx="4"/>
+  <text class="t" x="775" y="438">Embedding chunk</text>
+  <text class="s" x="775" y="456">хмарний API</text>
+
+  <rect class="box" x="910" y="410" width="170" height="64" rx="4"/>
+  <text class="t" x="995" y="438">Запис в індекс</text>
+  <text class="s" x="995" y="456">лише змінені документи</text>
+
+  <rect class="box" x="30" y="520" width="170" height="64" rx="4"/>
+  <text class="t" x="115" y="548">Адмінка</text>
+  <text class="s" x="115" y="566">PDF, прив'язка артикулів</text>
+
+  <line class="ln" x1="200" y1="442" x2="248" y2="442" marker-end="url(#a1)"/>
+  <line class="ln" x1="420" y1="442" x2="468" y2="442" marker-end="url(#a1)"/>
+  <line class="ln" x1="640" y1="442" x2="688" y2="442" marker-end="url(#a1)"/>
+  <line class="ln" x1="860" y1="442" x2="908" y2="442" marker-end="url(#a1)"/>
+  <path class="ln" d="M 1080 442 L 1200 442 L 1200 276" marker-end="url(#a1)"/>
+  <text class="lab" x="1208" y="360">запис</text>
+  <line class="ln" x1="115" y1="520" x2="115" y2="476" marker-end="url(#a1)"/>
+  <text class="lab" x="123" y="502">завантаження</text>
+  <path class="ln warn" d="M 335 474 L 335 552 L 202 552" marker-end="url(#w1)"/>
+  <text class="labw" x="345" y="520">сумнівний OCR → ручна перевірка</text>
+
+  <!-- badges -->
+  <g>
+    <circle class="badge" cx="200" cy="70" r="11"/><text class="bn" x="200" y="74">9</text>
+    <circle class="badge" cx="640" cy="70" r="11"/><text class="bn" x="640" y="74">3</text>
+    <circle class="badge" cx="1080" cy="70" r="11"/><text class="bn" x="1080" y="74">4</text>
+    <circle class="badge" cx="1080" cy="210" r="11"/><text class="bn" x="1080" y="214">5</text>
+    <circle class="badge" cx="860" cy="210" r="11"/><text class="bn" x="860" y="214">6</text>
+    <circle class="badge" cx="640" cy="210" r="11"/><text class="bn" x="640" y="214">7</text>
+    <circle class="badge" cx="420" cy="210" r="11"/><text class="bn" x="420" y="214">8</text>
+    <circle class="badge" cx="420" cy="410" r="11"/><text class="bn" x="420" y="414">1</text>
+    <circle class="badge" cx="640" cy="410" r="11"/><text class="bn" x="640" y="414">2</text>
+  </g>
+
+  <!-- legend -->
+  <rect class="box ext" x="470" y="604" width="44" height="22" rx="3"/>
+  <text class="lab" x="524" y="619">виклик хмарного API</text>
+  <circle class="badge" cx="700" cy="615" r="11"/><text class="bn" x="700" y="619">n</text>
+  <text class="lab" x="718" y="619">шар у таблиці метрик</text>
+  <line class="ln warn" x1="900" y1="615" x2="944" y2="615"/>
+  <text class="lab" x="954" y="619">відмова або ручна перевірка</text>
+</svg>
+<figcaption>Онлайн-запит іде змійкою зліва направо і назад. Дві червоні гілки ведуть у форму зворотного зв'язку: питання поза межами документації відсікає класифікатор, а питання, на яке пошук не знайшов достатньо контексту, відсікає поріг. Індекс оновлюється офлайн, і знання асистента беруться тільки з PDF у сховищі.</figcaption>
+</figure>
+
+<section>
+  <h2>Що міряємо на кожному шарі</h2>
+  <p class="prose note">Цілі взято з розділу 8.3 ТЗ. Решту погоджуємо із замовником після першого прогону eval на етапі 1.</p>
+  <div class="tablewrap">
+  <table>
+    <thead>
+      <tr><th>ШАР</th><th>КРОК</th><th>МЕТРИКИ</th><th>НА ЧОМУ МІРЯЄМО</th><th>ЦІЛЬ</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="n"><span class="pill">1</span></td><td>Розбір і OCR</td><td>CER на сканах; точність числових токенів; частка сторінок з текстом (серед тих, де текст є в оригіналі)</td><td>Стратифікована вибірка сторінок з ручною транскрипцією</td><td class="goal">погодити</td></tr>
+      <tr><td class="n"><span class="pill">2</span></td><td>Нормалізація, chunk</td><td>Розірвані таблиці; частка документів з артикулами; точність прив'язки</td><td>Автоперевірка в CI; ручна вибірка документів</td><td class="goal">розірваних таблиць 0</td></tr>
+      <tr><td class="n"><span class="pill">3</span></td><td>Класифікатор</td><td>Precision і recall за класами, окремо recall небезпечних тем; recall@k з переписуванням і без; exact match артикулів</td><td>Розмічені звернення підтримки; діалоги з eval-набору</td><td class="goal">погодити</td></tr>
+      <tr><td class="n"><span class="pill">4</span></td><td>Гібридний пошук</td><td>recall@50 окремо для BM25, вектора і гібриду, з розбивкою за типом питання</td><td>Golden set: документ і всі релевантні сторінки</td><td class="goal">погодити</td></tr>
+      <tr><td class="n"><span class="pill">5</span></td><td>Reranker</td><td>recall@5, MRR, nDCG@5, до і після rerank</td><td>Той самий golden set</td><td class="goal">recall@5 ≥ 0,85</td></tr>
+      <tr><td class="n"><span class="pill">6</span></td><td>Поріг достатності</td><td>Коректні відмови на питаннях без відповіді; хибні відмови на питаннях з відповіддю</td><td>Питання з міткою «правильна поведінка: відмова»</td><td class="goal">≥ 0,9 / ≤ 0,1</td></tr>
+      <tr><td class="n"><span class="pill">7</span></td><td>Генерація</td><td>Faithfulness; точність і покриття цитат; повнота за ключовими фактами; точні числа; дисклеймер на небезпечних темах</td><td>LLM-as-judge, звірений з людьми; автоматична звірка чисел</td><td class="goal">faithfulness ≥ 0,95<br>числа (небезпечні теми) 100 %</td></tr>
+      <tr><td class="n"><span class="pill">8</span></td><td>Постперевірка</td><td>Частка спійманих підкинутих помилок; хибні блокування правильних відповідей</td><td>Відповіді з навмисно зіпсованими числами</td><td class="goal">погодити</td></tr>
+      <tr><td class="n"><span class="pill">9</span></td><td>Наскрізно</td><td>Людська оцінка 1–5; частка «некорисно»; переходи у форму; p95 до першого токена; вартість діалогу</td><td>Щотижнева вибірка діалогів; траси й логи</td><td class="goal">p95 ≤ 3 с (погодити)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="prose">
+  <h2>Як метрики потрапляють у рішення</h2>
+  <p>Окремі цифри нічого не змінюють, поки не впливають на реліз. Тому eval запускається в CI на кожну зміну промпту, моделі, chunking чи порогів, і регресія понад допуск блокує реліз. Після запуску golden set поповнюється з продакшну: кожен діалог з оцінкою «некорисно» є кандидатом у новий випадок.</p>
+</section>
+
+<figure>
+<svg viewBox="0 0 1300 370" role="img" aria-label="Цикл якості: golden set проганяється в CI, метрики за шарами йдуть у гейт релізу, з продакшну траси й оцінки потрапляють на щотижневий розбір, а нові розмічені випадки повертаються в dev-частину golden set.">
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="w2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mkw" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <text class="lane" x="30" y="24">ДО РЕЛІЗУ</text>
+  <text class="lane" x="1090" y="24">ПІСЛЯ РЕЛІЗУ</text>
+
+  <rect class="box store" x="30" y="80" width="200" height="70" rx="4"/>
+  <text class="t" x="130" y="106">Golden set</text>
+  <text class="s" x="130" y="124">dev · test (заморожений)</text>
+  <text class="s" x="130" y="140">у git, з версіями документів</text>
+
+  <rect class="box" x="300" y="80" width="200" height="70" rx="4"/>
+  <text class="t" x="400" y="106">Прогін eval у CI</text>
+  <text class="s" x="400" y="124">на кожну зміну промпту,</text>
+  <text class="s" x="400" y="140">моделі, chunking, порогів</text>
+
+  <rect class="box" x="570" y="80" width="200" height="70" rx="4"/>
+  <text class="t" x="670" y="106">Метрики шарів 1–9</text>
+  <text class="s" x="670" y="124">за сегментами питань,</text>
+  <text class="s" x="670" y="140">з довірчими інтервалами</text>
+
+  <rect class="box form" x="840" y="80" width="200" height="70" rx="4"/>
+  <text class="t" x="940" y="106">Гейт релізу</text>
+  <text class="s" x="940" y="124">регресія понад допуск?</text>
+
+  <rect class="box" x="1090" y="80" width="180" height="70" rx="4"/>
+  <text class="t" x="1180" y="106">Продакшн</text>
+  <text class="s" x="1180" y="124">моніторинг, алерти</text>
+  <text class="s" x="1180" y="140">p95, відмови, вартість</text>
+
+  <rect class="box ext" x="300" y="230" width="200" height="70" rx="4"/>
+  <text class="t" x="400" y="256">LLM-as-judge</text>
+  <text class="s" x="400" y="274">звірений з людьми</text>
+  <text class="s" x="400" y="290">на 50 відповідях</text>
+
+  <rect class="box" x="570" y="230" width="200" height="70" rx="4"/>
+  <text class="t" x="670" y="256">Розмітка</text>
+  <text class="s" x="670" y="274">за інструкцією; частину</text>
+  <text class="s" x="670" y="290">розмічають двоє незалежно</text>
+
+  <rect class="box" x="840" y="230" width="200" height="70" rx="4"/>
+  <text class="t" x="940" y="256">Щотижневий розбір</text>
+  <text class="s" x="940" y="274">усі «некорисно», відмови,</text>
+  <text class="s" x="940" y="290">небезпечні теми</text>
+
+  <rect class="box store" x="1090" y="230" width="180" height="70" rx="4"/>
+  <text class="t" x="1180" y="256">Траси й оцінки</text>
+  <text class="s" x="1180" y="274">Langfuse, кнопки</text>
+  <text class="s" x="1180" y="290">«корисно / некорисно»</text>
+
+  <line class="ln" x1="230" y1="115" x2="298" y2="115" marker-end="url(#a2)"/>
+  <line class="ln" x1="500" y1="115" x2="568" y2="115" marker-end="url(#a2)"/>
+  <line class="ln" x1="770" y1="115" x2="838" y2="115" marker-end="url(#a2)"/>
+  <line class="ln" x1="1040" y1="115" x2="1088" y2="115" marker-end="url(#a2)"/>
+  <text class="lab" x="1048" y="108">ні</text>
+  <path class="ln warn" d="M 940 80 L 940 50 L 400 50 L 400 78" marker-end="url(#w2)"/>
+  <text class="labw" x="670" y="44" text-anchor="middle">так: реліз заблоковано, правимо й проганяємо знову</text>
+  <line class="ln" x1="400" y1="230" x2="400" y2="152" marker-end="url(#a2)"/>
+  <text class="lab" x="408" y="196">оцінки 7</text>
+
+  <line class="ln" x1="1180" y1="150" x2="1180" y2="228" marker-end="url(#a2)"/>
+  <text class="lab" x="1188" y="194">кожен запит</text>
+  <line class="ln" x1="1090" y1="265" x2="1042" y2="265" marker-end="url(#a2)"/>
+  <line class="ln" x1="840" y1="265" x2="772" y2="265" marker-end="url(#a2)"/>
+  <text class="lab" x="778" y="257">кандидати</text>
+  <path class="ln" d="M 670 300 L 670 340 L 130 340 L 130 152" marker-end="url(#a2)"/>
+  <text class="lab" x="400" y="358" text-anchor="middle">нові випадки → лише в dev; test оновлюється новою версією</text>
+</svg>
+<figcaption>Верхній ряд описує, що відбувається з кожною зміною до релізу, нижній показує, звідки береться матеріал для наступних змін. Test-частина golden set між релізами не змінюється, інакше результати двох версій не можна порівняти.</figcaption>
+</figure>
+
+</main>
+</body>
+</html>

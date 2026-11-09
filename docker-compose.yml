@@ -1,0 +1,19 @@
+# ім'я проєкту фіксоване: після перенесення папки той самий контейнер і том rag_pgdata
+name: rag
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag
+      POSTGRES_DB: rag
+    ports:
+      - "5444:5432"   # 5432 і 5433 на цій машині зайняті іншими Postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag"]
+      interval: 2s
+      retries: 30
+volumes:
+  pgdata:

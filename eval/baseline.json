@@ -1,0 +1,52 @@
+{
+  "source": "20261109-113120-v1.json",
+  "config": {
+    "started": "2026-11-09 11:27:05",
+    "questions": "eval/questions.jsonl",
+    "n": 53,
+    "repeat": 3,
+    "answer_model": "claude-sonnet-5-5",
+    "fast_model": "claude-haiku-5-5",
+    "embedding_model": "BAAI/bge-m3",
+    "reranker_model": "BAAI/bge-reranker-v2-m3",
+    "rerank_threshold": 0.2,
+    "chunk_max_chars": 2400,
+    "context_top_k": 5,
+    "rerank_top_n": 20
+  },
+  "summary": {
+    "n": 53,
+    "pass": 0.981,
+    "recall@5": 0.974,
+    "recall@20_pre_rerank": 0.974,
+    "citation_precision": 0.974,
+    "in_context": 1.0,
+    "correct_judge": 0.974,
+    "faithfulness": 0.96,
+    "answers_with_invalid_citations": 0,
+    "numbers_found": 1.0,
+    "numbers_found_dangerous": 1.0,
+    "answers_with_unsupported_numbers": 0,
+    "dangerous_answers_with_unsupported_numbers": 0,
+    "correct_refusal_no_info": 1.0,
+    "correct_refusal_out_of_scope": 1.0,
+    "false_refusal": 0.026,
+    "dangerous_flag_recall": 0.957,
+    "latency_total_p50": 3183,
+    "latency_total_p95": 23843,
+    "latency_first_token_p50": 2678,
+    "latency_first_token_p95": 23461,
+    "cost_usd_total": 0.1245,
+    "cost_usd_per_question": 0.00235,
+    "tokens_in_per_question": 2567,
+    "tokens_out_per_question": 149,
+    "judge_cost_usd": 0.016,
+    "pass_at_1": 0.975,
+    "pass_all": 0.962,
+    "cost_usd_all_runs": 0.3667
+  },
+  "failed": [
+    "q04",
+    "q39"
+  ]
+}

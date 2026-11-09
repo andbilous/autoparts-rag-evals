@@ -1,0 +1,103 @@
+# Evals у CI (розділ 9 підготовки до заняття 9).
+# Кожен pull request, що чіпає код, промпти, тестсет або PDF, проходить два кроки:
+#   1. checks: тести, індекс з data/pdfs і lint тестсету. Без ключа, безкоштовно.
+#   2. evals:  повний eval з повторами і gate проти eval/baseline.json. Якщо метрика впала
+#              понад допуск або кейс, що проходив, тепер падає, PR стає червоним.
+# Ключ додайте в Settings -> Secrets and variables -> Actions як ANTHROPIC_API_KEY.
+# Локальний прогін 53 питання x 3 коштував $0.37 (звіт 20261109-113120-v1).
+name: evals
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "eval/questions.jsonl"
+      - "eval/baseline.json"
+      - "data/pdfs/**"
+      - "migrations/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/evals.yml"
+  workflow_dispatch:
+
+# новий пуш у той самий PR скасовує попередній прогін, щоб не платити двічі
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      db:
+        image: pgvector/pgvector:pg17
+        env: { POSTGRES_USER: rag, POSTGRES_PASSWORD: rag, POSTGRES_DB: rag }
+        ports: ["5444:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rag" --health-interval 2s --health-retries 30
+    env:
+      DATABASE_URL: postgresql://rag:rag@localhost:5444/rag
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - name: Unit tests (no DB, no LLM)
+        run: uv run --group dev pytest -q
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-bge-m3-reranker-v2-m3
+      - name: OCR for the scanned PDF
+        run: sudo apt-get update -q && sudo apt-get install -yq tesseract-ocr tesseract-ocr-ukr
+      - name: Build the index from data/pdfs
+        run: uv run rag migrate && uv run rag ingest
+      - name: Lint the testset
+        run: uv run rag lint
+
+  evals:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      db:
+        image: pgvector/pgvector:pg17
+        env: { POSTGRES_USER: rag, POSTGRES_PASSWORD: rag, POSTGRES_DB: rag }
+        ports: ["5444:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rag" --health-interval 2s --health-retries 30
+    env:
+      DATABASE_URL: postgresql://rag:rag@localhost:5444/rag
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-bge-m3-reranker-v2-m3
+      - run: sudo apt-get update -q && sudo apt-get install -yq tesseract-ocr tesseract-ocr-ukr
+      - run: uv run rag migrate && uv run rag ingest
+      - name: Eval x3 and the gate
+        # latency не порівнюємо: baseline знято на іншій машині, а раннер GitHub повільніший.
+        # Якість, ціна й токени від машини не залежать, їх gate перевіряє.
+        run: |
+          set -o pipefail
+          uv run rag eval --repeat 3 --tag "ci-${{ github.run_number }}" --gate --skip latency 2>&1 \
+            | grep -v -i -E "warn|Loading weights" | tee eval-output.txt
+      - name: Report in the job summary
+        if: always()
+        run: |
+          {
+            echo '## Gate'
+            echo '```'
+            sed -n '/^GATE/,$p' eval-output.txt
+            echo '```'
+            cat "$(ls -t eval/reports/*.md | head -1)"
+          } >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: eval/reports/

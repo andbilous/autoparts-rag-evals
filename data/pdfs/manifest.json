@@ -1,0 +1,83 @@
+[
+  {
+    "file": "galmar_pads_gp4510.pdf",
+    "doc_key": "galmar_pads_gp4510",
+    "title": "Колодки гальмівні дискові GP-4510. Інструкція з монтажу та технічні дані",
+    "manufacturer": "Гальмар",
+    "doc_type": "installation",
+    "articles": [
+      "4 510 220 017",
+      "4 510 220 018"
+    ]
+  },
+  {
+    "file": "galmar_discs_gd3000.pdf",
+    "doc_key": "galmar_discs_gd3000",
+    "title": "Диски гальмівні серії GD-3000. Каталог і технічні умови",
+    "manufacturer": "Гальмар",
+    "doc_type": "catalog",
+    "articles": [
+      "GD-3021",
+      "GD-3040"
+    ]
+  },
+  {
+    "file": "remtime_rt2041k1.pdf",
+    "doc_key": "remtime_rt2041k1",
+    "title": "Комплект ременя ГРМ RT2041K1. Інструкція з монтажу",
+    "manufacturer": "РемТайм",
+    "doc_type": "installation",
+    "articles": [
+      "RT2041K1"
+    ]
+  },
+  {
+    "file": "filtrolux_fl715_40.pdf",
+    "doc_key": "filtrolux_fl715_40",
+    "title": "Фільтр масляний FL 715/40. Технічний паспорт",
+    "manufacturer": "ФільтроЛюкс",
+    "doc_type": "specification",
+    "articles": [
+      "FL 715/40"
+    ]
+  },
+  {
+    "file": "filtrolux_catalog_2025.pdf",
+    "doc_key": "filtrolux_catalog_2025",
+    "title": "Каталог масляних фільтрів ФільтроЛюкс 2025",
+    "manufacturer": "ФільтроЛюкс",
+    "doc_type": "catalog",
+    "articles": []
+  },
+  {
+    "file": "kolprof_bolts_kb.pdf",
+    "doc_key": "kolprof_bolts_kb",
+    "title": "Болти колісні серії KB. Інструкція з монтажу",
+    "manufacturer": "Колесо-Профі",
+    "doc_type": "installation",
+    "articles": [
+      "KB-1215C",
+      "KB-1215A",
+      "KB-1415A",
+      "KB-1415C"
+    ]
+  },
+  {
+    "file": "amorttekh_at200_scan.pdf",
+    "doc_key": "amorttekh_at200",
+    "title": "Амортизатори АмортТех серії AT-200. Гарантійний лист",
+    "manufacturer": "АмортТех",
+    "doc_type": "warranty",
+    "articles": [
+      "AT-200"
+    ]
+  },
+  {
+    "file": "galmar_warranty.pdf",
+    "doc_key": "galmar_warranty",
+    "title": "Гарантійні умови ТОВ «Гальмар»",
+    "manufacturer": "Гальмар",
+    "doc_type": "warranty",
+    "articles": []
+  }
+]
