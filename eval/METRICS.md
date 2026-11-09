@@ -87,7 +87,7 @@ Faithfulness і правильність міряють різне. Faithfulness
 
 ## Evals у CI
 
-Workflow лежить у `.github/workflows/evals.yml` і запускається на кожен pull request, що змінює код, тестсет, baseline або PDF. Перший job (checks) працює без ключа: тести, індекс з `data/pdfs` у тимчасовому Postgres і `rag lint`. Другий (evals) запускається, лише якщо перший зелений, проганяє `rag eval --repeat 3 --gate --skip latency` і робить PR червоним, якщо gate не пройдено. Звіт потрапляє в summary job'а і в артефакт `eval-report`.
+Workflow лежить у `.github/workflows/evals.yml` і запускається на кожен pull request, що змінює код, тестсет, baseline або PDF. Перший job (checks) працює без ключа: тести, індекс з `data/pdfs` у тимчасовому Postgres і `rag lint`. Другий (evals) запускається, лише якщо перший зелений, проганяє `rag eval --gate --skip latency` і робить PR червоним, якщо gate не пройдено. На CPU раннера одне питання займає близько 20 с, тому на PR іде один прогін, хвилин 20. Прогін з повторами (pass@1, flaky) запускається вручну: Actions → evals → Run workflow, поле repeat, за замовчуванням 3. Звіт потрапляє в summary job'а і в артефакт `eval-report`.
 
 Час (`latency_*`) у CI не порівнюємо. Baseline знято на іншій машині, а раннер GitHub повільніший, тож gate падав би на кожному PR без жодної зміни в якості. Якість, ціна й токени від машини не залежать, їх gate перевіряє. Якщо хочете порівнювати й час, знімайте baseline на тому самому раннері: запустіть workflow вручну, завантажте артефакт і збережіть його звіт через `rag gate <звіт> --save-baseline`.
 

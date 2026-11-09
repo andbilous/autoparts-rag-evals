@@ -5,6 +5,8 @@
 #              понад допуск або кейс, що проходив, тепер падає, PR стає червоним.
 # Ключ додайте в Settings -> Secrets and variables -> Actions як ANTHROPIC_API_KEY.
 # Локальний прогін 53 питання x 3 коштував $0.37 (звіт 20261109-113120-v1).
+# Швидкість: на CPU раннера GitHub одне питання займає близько 20 с (перший запуск, 9 листопада 2026),
+# тому на PR іде один прогін (~20 хв), а прогін з повторами для pass@1 і flaky запускається вручну.
 name: evals
 
 on:
@@ -19,6 +21,10 @@ on:
       - "uv.lock"
       - ".github/workflows/evals.yml"
   workflow_dispatch:
+    inputs:
+      repeat:
+        description: "Скільки разів прогнати кожне питання (3 = pass@1, flaky)"
+        default: "3"
 
 # новий пуш у той самий PR скасовує попередній прогін, щоб не платити двічі
 concurrency:
@@ -58,7 +64,7 @@ jobs:
   evals:
     needs: checks
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
     services:
       db:
         image: pgvector/pgvector:pg17
@@ -79,13 +85,16 @@ jobs:
           key: hf-bge-m3-reranker-v2-m3
       - run: sudo apt-get update -q && sudo apt-get install -yq tesseract-ocr tesseract-ocr-ukr
       - run: uv run rag migrate && uv run rag ingest
-      - name: Eval x3 and the gate
+      - name: Eval and the gate
         # latency не порівнюємо: baseline знято на іншій машині, а раннер GitHub повільніший.
         # Якість, ціна й токени від машини не залежать, їх gate перевіряє.
+        env:
+          REPEAT: ${{ inputs.repeat || '1' }}
+          PYTHONUNBUFFERED: "1"
         run: |
           set -o pipefail
-          uv run rag eval --repeat 3 --tag "ci-${{ github.run_number }}" --gate --skip latency 2>&1 \
-            | grep -v -i -E "warn|Loading weights" | tee eval-output.txt
+          uv run rag eval --repeat "$REPEAT" --tag "ci-${{ github.run_number }}" --gate --skip latency 2>&1 \
+            | grep --line-buffered -v -i -E "warn|Loading weights|self.dim|^\s*$" | tee eval-output.txt
       - name: Report in the job summary
         if: always()
         run: |
