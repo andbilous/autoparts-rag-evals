@@ -49,6 +49,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with: { enable-cache: true }
       - name: Unit tests (no DB, no LLM)
+        id: tests
         run: uv run --group dev pytest -q
       - uses: actions/cache@v4
         with:
@@ -59,7 +60,13 @@ jobs:
       - name: Build the index from data/pdfs
         run: uv run rag migrate && uv run rag ingest
       - name: Lint the testset
-        run: uv run rag lint
+        run: |
+          set -o pipefail
+          uv run rag lint 2>/dev/null | tee lint.txt
+      - name: Checks in the job summary
+        if: always()
+        run: |
+          { echo '## Checks'; echo; echo "- Тести: ${{ steps.tests.outcome }}"; echo "- Lint тестсету: $(tail -1 lint.txt 2>/dev/null || echo 'не дійшов')"; } >> "$GITHUB_STEP_SUMMARY"
 
   evals:
     needs: checks
@@ -98,13 +105,11 @@ jobs:
       - name: Report in the job summary
         if: always()
         run: |
-          {
-            echo '## Gate'
-            echo '```'
-            sed -n '/^GATE/,$p' eval-output.txt
-            echo '```'
-            cat "$(ls -t eval/reports/*.md | head -1)"
-          } >> "$GITHUB_STEP_SUMMARY" || true
+          if ls eval/reports/2*.json > /dev/null 2>&1; then
+            uv run rag summary --skip latency 2>/dev/null >> "$GITHUB_STEP_SUMMARY"
+          else
+            { echo '## ❌ Eval не дійшов до звіту'; echo '```'; tail -40 eval-output.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

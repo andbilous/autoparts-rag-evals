@@ -1,4 +1,4 @@
-"""CLI: rag migrate | ingest | ask | eval | lint | gate | calibrate."""
+"""CLI: rag migrate | ingest | ask | eval | lint | summary | gate | calibrate."""
 
 import asyncio
 import json
@@ -106,6 +106,16 @@ def lint_cmd(questions: Path = typer.Option(Path("eval/questions.jsonl"))) -> No
     print(f"{len(issues)} проблем" if issues else "тестсет чистий")
     if issues:
         raise typer.Exit(1)
+
+
+@app.command("summary")
+def summary_cmd(report: Path = typer.Argument(None, help="звіт eval/reports/*.json; за замовчуванням останній"),
+                skip: list[str] = typer.Option([], "--skip", help="префікс метрик, які gate не порівнює")) -> None:
+    """Markdown-підсумок прогону (gate, метрики за розділами підготовки, проблемні кейси) для CI."""
+    from .evaluation import latest_report
+    from .evaluation.ci_summary import main as render
+
+    typer.echo(render(report or latest_report(), tuple(skip)))
 
 
 @app.command("gate")
